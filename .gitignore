@@ -102,3 +102,12 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+*.gr
+*.mtx
+*.log
+log/
+output/
+gunrock/
+groute/
+sep-graph
