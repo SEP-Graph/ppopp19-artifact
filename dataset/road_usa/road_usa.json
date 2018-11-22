@@ -1,0 +1,16 @@
+{
+  "links": [
+    "http://164.107.116.109/dataset/road_usa/road_usa.undirected.random.weight.gr",
+    "http://164.107.116.109/dataset/road_usa/road_usa.undirected.random.weight.mtx"
+  ],
+  "source_node": 0,
+  "block_size": 512,
+  "sparse": true,
+  "SEP_pr_error": 0.0095,
+  "Gunrock_do_a": 1.0,
+  "Gunrock_do_b": 10,
+  "Gunrock_traversal_mode": "TWC",
+  "Groute_pr_error": 0.0076,
+  "Groute_bfs_prio_delta_fused": 100,
+  "Groute_sssp_prio_delta_fused": 431
+}

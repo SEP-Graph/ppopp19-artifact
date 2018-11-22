@@ -1,0 +1,20 @@
+{
+  "links": [
+    "http://164.107.116.109/dataset/kron_g500-logn21/kron_g500-logn21.undirected.random.weight.gr",
+    "http://164.107.116.109/dataset/kron_g500-logn21/kron_g500-logn21.undirected.random.weight.mtx"
+  ],
+  "source_node": 0,
+  "block_size": 512,
+  "sparse": false,
+  "SEP_pr_error": 0.12,
+  "SEP_sssp_alpha": 8,
+  "SEP_sssp_beta": 5,
+  "SEP_bfs_alpha": 8,
+  "SEP_bfs_beta": 5,
+  "Gunrock_do_a": 0.00001,
+  "Gunrock_do_b": 0.1,
+  "Gunrock_traversal_mode": "LB_CULL",
+  "Groute_pr_error": 0.013,
+  "Groute_bfs_prio_delta_fused": 1,
+  "Groute_sssp_prio_delta_fused": 11
+}

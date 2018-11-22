@@ -1,0 +1,19 @@
+{
+  "links": [
+    "http://164.107.116.109/dataset/soc-LiveJournal1/soc-LiveJournal1.undirected.random.weight.gr",
+    "http://164.107.116.109/dataset/soc-LiveJournal1/soc-LiveJournal1.undirected.random.weight.mtx"
+  ],
+  "source_node": 0,
+  "sparse": false,
+  "SEP_pr_error": 0.01,
+  "SEP_sssp_alpha": 5,
+  "SEP_sssp_beta": 8,
+  "SEP_bfs_alpha": 5,
+  "SEP_bfs_beta": 8,
+  "Gunrock_do_a": 0.2,
+  "Gunrock_do_b": 0.1,
+  "Gunrock_traversal_mode": "LB_CULL",
+  "Groute_pr_error": 0.005,
+  "Groute_bfs_prio_delta_fused": 5000,
+  "Groute_sssp_prio_delta_fused": 58
+}
