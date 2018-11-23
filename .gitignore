@@ -108,6 +108,3 @@ venv.bak/
 *.log
 log/
 output/
-gunrock/
-groute/
-sep-graph

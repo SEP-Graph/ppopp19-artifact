@@ -9,7 +9,7 @@ SEP_BUILD_PATH = join(SEP_PATH, "build")
 chdir(WORKSPACE_ROOT)
 
 if not exists(SEP_PATH):
-    system("git clone --recursive https://github.com/SEP-Graph/sep-graph.git")
+    exit("Could not found %s. Make sure you clone the project with --recursive flag" % SEP_PATH)
 
 chdir(SEP_PATH)
 
