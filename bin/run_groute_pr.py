@@ -52,8 +52,8 @@ for data_dirname, metadata in parse_all_metadata().items():
 
     print("Error tolerance: %s" % error_tolerance)
     match = search("Total rank : (\d+\.\d+)", output)
-    if match:
-        print("Total rank: %s\n" % match.groups()[0])
+    # if match:
+        # print("Total rank: %s\n" % match.groups()[0])
 
     with open(log_path, "w") as fo:
         fo.write("cmd: %s\n\n" % cmd)
