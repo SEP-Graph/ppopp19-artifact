@@ -11,15 +11,15 @@ if not path.exists(BOOST_PATH):
     chdir(WORKSPACE_ROOT)
 
     print("Downloading Boost 1.58.0")
-    system("wget -P /tmp/ http://sourceforge.net/projects/boost/files/boost/1.58.0/boost_1_58_0.tar.bz2")
+    system("wget -P %s http://sourceforge.net/projects/boost/files/boost/1.58.0/boost_1_58_0.tar.bz2" % WORKSPACE_ROOT)
 
-    system("rm -rf /tmp/boost_1_58_0")
+    system("rm -rf %s", path.join(WORKSPACE_ROOT, "boost_1_58_0"))
 
-    print("Extracting boost into /tmp/boost_1_58_0")
-    system("tar -xjvf /tmp/boost_1_58_0.tar.bz2 -C /tmp/")
+    print("Extracting boost into %s" % path.join(WORKSPACE_ROOT, "boost_1_58_0"))
+    system("tar -xjvf %s -C %s" % (path.join(WORKSPACE_ROOT, "boost_1_58_0.tar.bz2"), WORKSPACE_ROOT))
 
-    print("cd /tmp/boost_1_58_0")
-    chdir("/tmp/boost_1_58_0")
+    print("cd %s" % path.join(WORKSPACE_ROOT, "boost_1_58_0"))
+    chdir(path.join(WORKSPACE_ROOT, "boost_1_58_0"))
 
     print("Run bootstrap.sh")
     system("./bootstrap.sh")
