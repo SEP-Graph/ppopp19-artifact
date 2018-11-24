@@ -44,6 +44,6 @@ for data_dirname, metadata in parse_all_metadata().items():
         exit(output)
 
     match = search("Total rank : (\d+\.\d+)", output)
-    if match:
-        print("Total rank: %s\n" % match.groups()[0])
+    # if match:
+        # print("Total rank: %s\n" % match.groups()[0])
     print("--------------")
