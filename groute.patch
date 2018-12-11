@@ -1,3 +1,20 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 6e996b2..3bab547 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -88,6 +88,12 @@ target_link_libraries(pr ${EXTRA_LIBS})
+ cuda_add_executable(pbf samples/pbf/pbf_async.cu samples/pbf/main.cpp)
+ target_link_libraries(pbf ${EXTRA_LIBS})
+ 
++cuda_add_executable(bc src/utils/parser.cpp src/utils/utils.cpp src/groute/graphs/csr_graph.cpp
++        samples/bc/bc_async.cu
++        samples/bc/bc_host.cpp
++        samples/bc/main.cpp)
++target_link_libraries(bc ${EXTRA_LIBS})
++
+ 
+ # Unit tests
+ enable_testing()
 diff --git a/include/groute/worklist_stack.h b/include/groute/worklist_stack.h
 new file mode 100644
 index 0000000..d5ccc11
@@ -1193,3 +1210,380 @@ index 0000000..4c49f5c
 +}
 +
 +
+diff --git a/samples/pr/main.cpp b/samples/pr/main.cpp
+index e312620..18278b7 100644
+--- a/samples/pr/main.cpp
++++ b/samples/pr/main.cpp
+@@ -36,10 +36,14 @@
+ #include <utils/interactor.h>
+ #include <utils/app_skeleton.h>
+ 
+-
++DEFINE_double(error, 0.01, "PR error");
++DEFINE_bool(wl_sort, false, "sort worklist by node id");
+ bool TestPageRankSingle();
++
+ bool TestPageRankAsyncMulti(int ngpus);
++
+ bool TestPageRankAsyncMultiOptimized(int ngpus);
++
+ void CleanupGraphs();
+ 
+ 
+@@ -47,13 +51,20 @@ namespace pr
+ {
+     struct App
+     {
+-        static const char* Name()       { return "page rank"; }
+-        static const char* NameUpper()  { return "Page Rank"; }
++        static const char *Name()
++        { return "page rank"; }
+ 
+-        static bool Single()            { return TestPageRankSingle(); }
+-        static bool AsyncMulti(int G)   { return FLAGS_opt ? TestPageRankAsyncMultiOptimized(G) : TestPageRankAsyncMulti(G); }
++        static const char *NameUpper()
++        { return "Page Rank"; }
+ 
+-        static void Cleanup()           { CleanupGraphs(); }
++        static bool Single()
++        { return TestPageRankSingle(); }
++
++        static bool AsyncMulti(int G)
++        { return FLAGS_opt ? TestPageRankAsyncMultiOptimized(G) : TestPageRankAsyncMulti(G); }
++
++        static void Cleanup()
++        { CleanupGraphs(); }
+     };
+ }
+ 
+@@ -65,7 +76,8 @@ int main(int argc, char **argv)
+     // cudaDeviceReset must be called before exiting in order for profiling and
+     // tracing tools such as Nsight and Visual Profiler to show complete traces.
+     cudaError_t cudaStatus = cudaDeviceReset();
+-    if (cudaStatus != cudaSuccess) {
++    if (cudaStatus != cudaSuccess)
++    {
+         fprintf(stderr, "cudaDeviceReset failed!");
+         return 1;
+     }
+diff --git a/samples/pr/pr_async.cu b/samples/pr/pr_async.cu
+index 0d2d9d8..c61f01d 100644
+--- a/samples/pr/pr_async.cu
++++ b/samples/pr/pr_async.cu
+@@ -31,7 +31,8 @@
+ #include <thread>
+ #include <memory>
+ #include <random>
+-
++#include <thrust/sort.h>
++#include <thrust/device_ptr.h>
+ #include <gflags/gflags.h>
+ 
+ #include <groute/event_pool.h>
+@@ -49,7 +50,8 @@
+ 
+ DECLARE_int32(max_pr_iterations);
+ DECLARE_bool(verbose);
+-
++DECLARE_bool(wl_sort);
++DECLARE_double(error);
+ #define GTID (blockIdx.x * blockDim.x + threadIdx.x)
+ 
+ 
+@@ -153,8 +155,8 @@ namespace pr
+     __global__ void PageRankKernel__Single__NestedParallelism__(
+         TGraph graph,
+         RankDatum<rank_t> current_ranks, ResidualDatum<rank_t> residual,
+-        WorkSource work_source, TWorklist<index_t> output_worklist
+-        )
++        WorkSource work_source, TWorklist<index_t> output_worklist,
++        double error)
+     {
+         unsigned tid = TID_1D;
+         unsigned nthreads = TOTAL_THREADS_1D;
+@@ -188,11 +190,11 @@ namespace pr
+ 
+             groute::dev::CTAWorkScheduler<rank_t>::template schedule(
+                 np_local, 
+-                [&graph, &residual, &output_worklist](index_t edge, rank_t update)
++                [&graph, &residual, &output_worklist, &error](index_t edge, rank_t update)
+                 {
+                     index_t dest = graph.edge_dest(edge);
+                     rank_t prev = atomicAdd(residual.get_item_ptr(dest), update);
+-                    if (prev + update > EPSILON && prev < EPSILON)
++                    if (prev + update > error && prev < error)
+                     {
+                         output_worklist.append_warp(dest);
+                     }
+@@ -209,8 +211,8 @@ namespace pr
+     __global__ void PageRankKernel__Single__(
+         TGraph graph,
+         RankDatum<rank_t> current_ranks, ResidualDatum<rank_t> residual,
+-        WorkSource work_source, TWorklist<index_t> output_worklist
+-        )
++        WorkSource work_source, TWorklist<index_t> output_worklist,
++        double error)
+     {
+         unsigned tid = TID_1D;
+         unsigned nthreads = TOTAL_THREADS_1D;
+@@ -239,7 +241,7 @@ namespace pr
+             {
+                 index_t dest = graph.edge_dest(edge);
+                 rank_t prev = atomicAdd(residual.get_item_ptr(dest), update);
+-                if (prev + update > EPSILON && prev < EPSILON)
++                if (prev + update > error && prev < error)
+                 {
+                     output_worklist.append_warp(dest);
+                 }
+@@ -260,8 +262,8 @@ namespace pr
+         ResidualDatum<rank_t> residual,
+         WorkSource work_source, 
+         TWorklist<index_t> local_output_worklist,
+-        WorkTarget remote_work_target
+-        )
++        WorkTarget remote_work_target,
++        double error)
+     {
+         unsigned tid = TID_1D;
+         unsigned nthreads = TOTAL_THREADS_1D;
+@@ -295,14 +297,14 @@ namespace pr
+ 
+             groute::dev::CTAWorkScheduler<rank_t>::template schedule(
+                 np_local, 
+-                [&graph, &residual, &local_output_worklist, &remote_work_target](index_t edge, rank_t update)
++                [&graph, &residual, &local_output_worklist, &remote_work_target, &error](index_t edge, rank_t update)
+                 {
+                     index_t dest = graph.edge_dest(edge);
+                     rank_t prev = atomicAdd(residual.get_item_ptr(dest), update);
+ 
+                     if (graph.owns(dest))
+                     {
+-                        if (prev + update > EPSILON && prev <= EPSILON)
++                        if (prev + update > error && prev <= error)
+                         {
+                             local_output_worklist.append_warp(dest);
+                         }
+@@ -333,8 +335,8 @@ namespace pr
+         ResidualDatum<rank_t> residual,
+         WorkSource work_source, 
+         TWorklist<index_t> local_output_worklist,
+-        WorkTarget remote_work_target
+-        )
++        WorkTarget remote_work_target,
++        double error)
+     {
+         unsigned tid = TID_1D;
+         unsigned nthreads = TOTAL_THREADS_1D;
+@@ -366,7 +368,7 @@ namespace pr
+ 
+                 if (graph.owns(dest))
+                 {
+-                    if (prev + update > EPSILON && prev <= EPSILON)
++                    if (prev + update > error && prev <= error)
+                     {
+                         local_output_worklist.append_warp(dest);
+                     }
+@@ -388,7 +390,7 @@ namespace pr
+     private:
+         groute::graphs::dev::CSRGraphSeg m_graph_seg;
+         groute::graphs::dev::GraphDatum<rank_t> m_residual;
+-
++        double error;
+     public:
+         template<typename...UnusedData>
+         SplitOps(
+@@ -400,6 +402,7 @@ namespace pr
+             m_graph_seg(graph_seg),
+             m_residual(residual)
+         {
++            error = FLAGS_error;
+         }
+ 
+         __device__ __forceinline__ groute::SplitFlags on_receive(const remote_work_t& work)
+@@ -407,7 +410,7 @@ namespace pr
+             if (m_graph_seg.owns(work.node))
+             {
+                 rank_t prev = atomicAdd(m_residual.get_item_ptr(work.node), work.rank);
+-                return (prev + work.rank > EPSILON && prev < EPSILON) 
++                return (prev + work.rank > error && prev < error)
+                     ? groute::SF_Take
+                     : groute::SF_None;
+             }
+@@ -518,7 +521,8 @@ namespace pr
+                 PageRankKernel__Single__NestedParallelism__ << < grid_dims, block_dims, 0, stream.cuda_stream >> >(
+                     m_graph, m_current_ranks, m_residual,
+                     work_source,
+-                    output_worklist.DeviceObject());
++                    output_worklist.DeviceObject(),
++                    FLAGS_error);
+             }
+             else
+             {
+@@ -526,7 +530,8 @@ namespace pr
+                 PageRankKernel__Single__ << < grid_dims, block_dims, 0, stream.cuda_stream >> >(
+                     m_graph, m_current_ranks, m_residual,
+                     work_source,
+-                    output_worklist.DeviceObject());
++                    output_worklist.DeviceObject(),
++                    FLAGS_error);
+             }
+         }
+ 
+@@ -545,7 +550,8 @@ namespace pr
+                     m_graph, m_current_ranks, m_residual,
+                     work_source,
+                     output_worklist.DeviceObject(),
+-                    WorkTargetWorklist(output_worklist));
++                    WorkTargetWorklist(output_worklist),
++                    FLAGS_error);
+             }
+             else
+             {
+@@ -554,7 +560,8 @@ namespace pr
+                     m_graph, m_current_ranks, m_residual,
+                     work_source,
+                     output_worklist.DeviceObject(),
+-                    WorkTargetWorklist(output_worklist));
++                    WorkTargetWorklist(output_worklist),
++                    FLAGS_error);
+             }
+         }
+     };
+@@ -696,7 +703,17 @@ namespace pr
+             UnusedData&... data)
+         {
+             graph_allocator.GatherDatum(current_ranks);
+-            return current_ranks.GetHostData();
++
++            auto host_data = current_ranks.GetHostData();
++            double pr_sum = 0;
++
++            for (auto pr:host_data){
++                pr_sum += pr;
++            }
++
++            printf("Total rank : %f\n", pr_sum);
++
++            return host_data;
+         }
+ 
+         template<
+@@ -785,28 +802,51 @@ bool TestPageRankSingle()
+     Stopwatch sw(true);
+ 
+     groute::Worklist<index_t>* in_wl = &wl1, *out_wl = &wl2;
++    int iteration = 0;
++    float sort_time = 0;
+ 
+     solver.Init__Single__(stream);
+-    
++
++    Stopwatch sw_iter(true);
+     // First relax is a special case, starts from all owned nodes
+     solver.Relax__Single__( 
+         groute::dev::WorkSourceRange<index_t>(
+             dev_graph_allocator.DeviceObject().owned_start_node(), 
+             dev_graph_allocator.DeviceObject().owned_nnodes()), 
+             *in_wl, stream);
++    stream.Sync();
++    sw_iter.stop();
++
++    printf("Iteration: %d Time: %f ms\n", iteration++, sw_iter.ms());
+ 
+     groute::Segment<index_t> work_seg;
+     work_seg = in_wl->ToSeg(stream);
+ 
+-    int iteration = 0;
++
+ 
+     while (work_seg.GetSegmentSize() > 0)
+     {
++        sw_iter.start();
++
++
++        if (FLAGS_wl_sort) {
++            Stopwatch sw_sort(true);
++            thrust::device_ptr<index_t> d_worklist(work_seg.GetSegmentPtr());
++            thrust::sort(d_worklist, d_worklist + work_seg.GetSegmentSize());
++            sw_sort.stop();
++
++            sort_time += sw_sort.ms();
++        }
++
+         solver.Relax__Single__(
+             groute::dev::WorkSourceArray<index_t>(
+                 work_seg.GetSegmentPtr(), 
+                 work_seg.GetSegmentSize()), 
+             *out_wl, stream);
++        stream.Sync();
++        sw_iter.stop();
++
++        printf("Iteration: %d Time: %f ms\n", iteration, sw_iter.ms());
+ 
+         if (++iteration > FLAGS_max_pr_iterations) break;
+ 
+@@ -821,11 +861,20 @@ bool TestPageRankSingle()
+         printf("\nWarning: ignoring repetitions flag, running just one repetition (not implemented)\n");
+ 
+     printf("\n%s: %f ms. <filter>\n\n", pr::Algo::Name(), sw.ms() / FLAGS_repetitions);
++    printf("Sort: %f ms.\n\n", sort_time);
+     printf("%s terminated after %d iterations (max: %d)\n\n", pr::Algo::Name(), iteration, FLAGS_max_pr_iterations);
+ 
+     // Gather
+     auto gathered_output = pr::Algo::Gather(dev_graph_allocator, residual, current_ranks);
+ 
++    double pr_sum = 0;
++
++    for (auto pr:gathered_output){
++        pr_sum += pr;
++    }
++
++    printf("Total rank : %f\n", pr_sum);
++
+     if (FLAGS_output.length() != 0)
+         pr::Algo::Output(FLAGS_output.c_str(), gathered_output);
+ 
+diff --git a/samples/pr/pr_host.cpp b/samples/pr/pr_host.cpp
+index d8364ce..407367e 100644
+--- a/samples/pr/pr_host.cpp
++++ b/samples/pr/pr_host.cpp
+@@ -33,7 +33,7 @@
+ DEFINE_int32(max_pr_iterations, 200, "The maximum number of PR iterations"); // used just for host and some single versions  
+ DEFINE_int32(top_ranks, 10, "The number of top ranks to compare for PR regression");
+ DEFINE_bool(print_ranks, false, "Write out ranks to output");
+-
++DECLARE_double(error);
+ 
+ std::vector<rank_t> PageRankHost(groute::graphs::host::CSRGraph& graph)
+ {
+@@ -97,7 +97,7 @@ std::vector<rank_t> PageRankHost(groute::graphs::host::CSRGraph& graph)
+                 rank_t prev = residual[dest];
+                 residual[dest] += update;
+ 
+-                if (prev + update > EPSILON && prev < EPSILON)
++                if (prev + update > FLAGS_error && prev < FLAGS_error)
+                 {
+                     out_wl->push(dest);
+                 }
+@@ -213,13 +213,17 @@ int PageRankOutput(const char *file, const std::vector<rank_t>& ranks)
+         std::stable_sort(pr, pr + ranks.size());
+         fprintf(stderr, "Writing to file ...\n");
+ 
+-        fprintf(f, "ALPHA %*e EPSILON %*e\n", FLT_DIG, ALPHA, FLT_DIG, EPSILON);
+-        fprintf(f, "RANKS 1--%d of %d\n", FLAGS_top_ranks, (int)ranks.size());
+-        for (int i = 1; i <= FLAGS_top_ranks; i++) {
++        int top_ranks = ranks.size();
++
++        fprintf(f, "ALPHA %*e EPSILON %*e\n", FLT_DIG, ALPHA, FLT_DIG, FLAGS_error);
++        fprintf(f, "RANKS 1--%d of %d\n", top_ranks, (int)ranks.size());
++        for (int i = 1; i <= top_ranks; i++) {
+             if (!FLAGS_print_ranks)
+                 fprintf(f, "%d %d\n", i, pr[ranks.size() - i].node);
+             else
+-                fprintf(f, "%d %d %*e\n", i, pr[ranks.size() - i].node, FLT_DIG, pr[ranks.size() - i].rank / sum);
++//                fprintf(f, "%d %d %*e\n", i, pr[ranks.size() - i].node, FLT_DIG, pr[ranks.size() - i].rank);
++//                fprintf(f, "%d %*e\n", pr[ranks.size() - i].node, FLT_DIG, pr[ranks.size() - i].rank / sum);
++                fprintf(f, "%d %*e\n", pr[ranks.size() - i].node, FLT_DIG, pr[ranks.size() - i].rank);
+         }
+ 
+         free(pr);
